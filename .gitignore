@@ -28,3 +28,6 @@ web-build/
 # Synology NAS metadata
 @eaDir/
 **/@eaDir/
+
+# pnpm content-addressable store (machine-local)
+.pnpm-store/
