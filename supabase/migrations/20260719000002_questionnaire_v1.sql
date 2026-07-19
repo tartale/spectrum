@@ -16,7 +16,8 @@ begin
   set likes = coalesce(dims.likes, '{}'),
       dislikes = coalesce(dims.dislikes, '{}'),
       triggers = coalesce(dims.triggers, '{}'),
-      activity_preferences = coalesce(dims.activity, '{}')
+      activity_preferences = coalesce(dims.activity, '{}'),
+      traits = coalesce(scalars.traits, '{}')
   from (
     select
       array_agg(distinct v) filter (where q.dimension = 'likes') as likes,
@@ -27,8 +28,16 @@ begin
     join public.questions q on q.id = a.question_id
     cross join lateral jsonb_array_elements_text(a.values) as v
     where a.child_id = target_child
-      and q.kind in ('multi_select', 'single_select')
+      and q.kind = 'multi_select'
   ) dims
+  cross join (
+    select jsonb_object_agg(q.dimension, a.values ->> 0) as traits
+    from public.answers a
+    join public.questions q on q.id = a.question_id
+    where a.child_id = target_child
+      and q.kind in ('single_select', 'scale')
+      and jsonb_array_length(a.values) > 0
+  ) scalars
   where c.id = target_child;
   return null;
 end;

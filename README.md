@@ -24,3 +24,17 @@ Spectrum helps families connect through carefully curated groups and private mes
 - Better matching through meaningful profile details
 - Local friend groups that respect privacy and comfort
 - Easier coordination without relying on public photo sharing
+
+## Development
+
+Monorepo layout: `apps/mobile` (Expo — iOS/Android/web), `packages/shared` (domain types, match scorer, geocoding), `packages/db-tests` (schema/RLS tests on in-process Postgres), `supabase/` (migrations, config, seed).
+
+```sh
+pnpm install
+pnpm db:start        # local Supabase stack (requires Docker); copy keys into .env
+pnpm db:seed         # seed admin + demo families (password: spectrum-dev-1234)
+pnpm web             # Expo on web at http://localhost:8081
+pnpm typecheck && pnpm lint && pnpm test
+```
+
+Architecture decisions are recorded on [issue #1](https://github.com/tartale/spectrum/issues/1).

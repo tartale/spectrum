@@ -4,8 +4,21 @@
 -- RPCs that return coarse, intentional fields (never exact coordinates,
 -- emails, or phone numbers). No photos exist anywhere in the data model.
 
-create extension if not exists cube;
-create extension if not exists earthdistance;
+-- Great-circle distance without extensions (works on any Postgres, incl. the
+-- PGlite test harness). Fine at neighborhood scale with no index needs.
+create function public.haversine_km(
+  lat1 double precision, lng1 double precision,
+  lat2 double precision, lng2 double precision
+)
+returns double precision
+language sql
+immutable
+as $$
+  select 2 * 6371 * asin(sqrt(
+    sin(radians((lat2 - lat1) / 2)) ^ 2
+    + cos(radians(lat1)) * cos(radians(lat2)) * sin(radians((lng2 - lng1) / 2)) ^ 2
+  ));
+$$;
 
 create type user_role as enum ('parent', 'admin');
 create type verification_status as enum ('unverified', 'pending', 'verified', 'rejected');
@@ -110,7 +123,12 @@ security definer
 set search_path = public
 as $$
 begin
-  if not public.is_admin() then
+  -- Trusted server-side functions set spectrum.system_update for the
+  -- transaction; direct user updates never have it. auth.uid() is null for
+  -- service-role/seed contexts, which bypass RLS anyway.
+  if current_setting('spectrum.system_update', true) is distinct from 'on'
+     and auth.uid() is not null
+     and not public.is_admin() then
     new.role := old.role;
     new.verification_status := old.verification_status;
     new.latitude := old.latitude;
@@ -137,6 +155,9 @@ create table public.children (
   dislikes text[] not null default '{}',
   triggers text[] not null default '{}',
   activity_preferences text[] not null default '{}',
+  -- Scalar questionnaire dimensions (communication, interaction_style, energy,
+  -- group_size, ...) projected from answers by trigger, keyed by dimension.
+  traits jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -234,9 +255,11 @@ security definer
 set search_path = public
 as $$
 begin
+  perform set_config('spectrum.system_update', 'on', true);
   update public.profiles
   set verification_status = 'pending'
   where id = new.user_id and verification_status in ('unverified', 'rejected');
+  perform set_config('spectrum.system_update', '', true);
   return new;
 end;
 $$;
@@ -309,6 +332,7 @@ returns table (
   dislikes text[],
   triggers text[],
   activity_preferences text[],
+  traits jsonb,
   parent_display_name text,
   city text,
   neighborhood text,
@@ -327,13 +351,11 @@ as $$
     c.dislikes,
     c.triggers,
     c.activity_preferences,
+    c.traits,
     p.display_name,
     p.city,
     p.neighborhood,
-    round((earth_distance(
-      ll_to_earth(me.latitude, me.longitude),
-      ll_to_earth(p.latitude, p.longitude)
-    ) / 1000.0)::numeric, 1)::double precision
+    round(public.haversine_km(me.latitude, me.longitude, p.latitude, p.longitude)::numeric, 1)::double precision
   from public.profiles me
   join public.profiles p
     on p.id <> me.id
@@ -345,17 +367,13 @@ as $$
     and me.latitude is not null
     -- my range preference
     and case me.range_type
-          when 'radius' then earth_distance(
-            ll_to_earth(me.latitude, me.longitude),
-            ll_to_earth(p.latitude, p.longitude)) <= me.range_radius_km * 1000
+          when 'radius' then public.haversine_km(me.latitude, me.longitude, p.latitude, p.longitude) <= me.range_radius_km
           when 'same_city' then p.city is not distinct from me.city
           when 'same_neighborhood' then p.neighborhood is not distinct from me.neighborhood
         end
     -- their range preference, symmetrically respected
     and case p.range_type
-          when 'radius' then earth_distance(
-            ll_to_earth(me.latitude, me.longitude),
-            ll_to_earth(p.latitude, p.longitude)) <= p.range_radius_km * 1000
+          when 'radius' then public.haversine_km(me.latitude, me.longitude, p.latitude, p.longitude) <= p.range_radius_km
           when 'same_city' then p.city is not distinct from me.city
           when 'same_neighborhood' then p.neighborhood is not distinct from me.neighborhood
         end;
