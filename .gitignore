@@ -1,0 +1,30 @@
+__pycache__/
+.DS_Store
+.env
+.env.*
+!.env.example
+.envrc
+.tmp/
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# Expo
+.expo/
+web-build/
+
+# Local databases
+*.sqlite
+*.db
+
+# Claude Code — machine-local, not shared
+.claude/scheduled_tasks.lock
+.claude/memory/*.local.bak.*
+
+# Synology NAS metadata
+@eaDir/
+**/@eaDir/
